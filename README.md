@@ -17,6 +17,8 @@ logs everything.
 | [`documents/scan.py`](documents/scan.py) | macOS | Pre-open check for a PDF/Office file: malicious auto-actions, JavaScript, macros, DDE, embedded payloads — before you hand it to Preview or Word. |
 | [`windows/vuln-scan.ps1`](windows/vuln-scan.ps1) | Windows | Outdated winget packages, pending Windows Update items, and HIGH/CRITICAL CVEs in dependency manifests (Trivy). |
 | [`windows/winget-upgrade.ps1`](windows/winget-upgrade.ps1) | Windows | Unattended winget upgrades that cannot hang on a UAC prompt. |
+| [`windows/scan-file.ps1`](windows/scan-file.ps1) | Windows | Scan a single file before opening it: SHA-256, Mark-of-the-Web, Defender verdict. |
+| [`windows/enable-hardening.ps1`](windows/enable-hardening.ps1) | Windows | Document-focused ASR rules, SmartScreen Block mode, Windows Sandbox, scan context menu. |
 | [`wsl/scan.sh`](wsl/scan.sh) | WSL / Linux | HIGH/CRITICAL CVEs in installed OS packages (Trivy) plus advisories in project lockfiles (OSV-Scanner). |
 
 ## Windows
@@ -91,6 +93,43 @@ schtasks /Create /TN "Winget Upgrade Daily" /TR '"C:\Windows\System32\WindowsPow
 
 `winget` has no exclude flag, so the script switches to per-package upgrades when an exclude
 list is present. Copy `windows/exclude.txt.example` to `windows/exclude.txt` and list exact IDs.
+
+### Scanning a file before opening it
+
+Windows has no built-in "scan then open" button, but Defender exposes the primitives:
+
+```powershell
+.\windows\scan-file.ps1 -Path .\invoice.pdf
+```
+
+It prints SHA-256, whether the file carries a Mark-of-the-Web (downloaded from the internet),
+and runs a custom Defender scan on that file. Exit code `0` = clean, `2` = threat detected.
+Defender's real-time protection already scans files on open; this is for the cases where you
+want a verdict *before* double-clicking.
+
+### Hardening document handling
+
+```powershell
+# preview, no elevation needed
+.\windows\enable-hardening.ps1 -Preview
+
+# elevated: apply ASR in audit mode for a week before enforcing
+.\windows\enable-hardening.ps1 -AuditOnly
+
+# elevated: enforce
+.\windows\enable-hardening.ps1
+```
+
+What it changes:
+
+| Area | Change |
+|---|---|
+| ASR | Office child processes, Office code injection, Office executable content, Win32 calls from macros, executable content from mail, Adobe Reader child processes, lsass credential theft, PSExec/WMI process creation |
+| SmartScreen | Explorer `SmartScreenEnabled=Block` plus `EnableSmartScreen=1` / `ShellSmartScreenLevel=Block` policy |
+| Windows Sandbox | Enables `Containers-DisposableClientVM` (reboot required) |
+| Explorer | Adds a per-user "Scan with Microsoft Defender" context menu (no admin needed for this part) |
+
+ASR rules need Defender as the active AV and apply machine-wide once enabled.
 
 ## WSL / Linux
 

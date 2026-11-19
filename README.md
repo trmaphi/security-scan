@@ -14,6 +14,7 @@ logs everything.
 |---|---|---|
 | [`macos/software-audit.sh`](macos/software-audit.sh) | macOS | What is installed, what is outdated (Homebrew formulae/casks, App Store, macOS updates), and what changed in `/Applications` since last run. |
 | [`source/vuln-audit.sh`](source/vuln-audit.sh) | macOS / Linux / WSL | Known CVEs/GHSAs in project dependency lockfiles (OSV-Scanner), grouped by git repository with severity and advisory links. |
+| [`documents/scan.py`](documents/scan.py) | macOS | Pre-open check for a PDF/Office file: malicious auto-actions, JavaScript, macros, DDE, embedded payloads — before you hand it to Preview or Word. |
 | [`windows/vuln-scan.ps1`](windows/vuln-scan.ps1) | Windows | Outdated winget packages, pending Windows Update items, and HIGH/CRITICAL CVEs in dependency manifests (Trivy). |
 | [`windows/winget-upgrade.ps1`](windows/winget-upgrade.ps1) | Windows | Unattended winget upgrades that cannot hang on a UAC prompt. |
 | [`wsl/scan.sh`](wsl/scan.sh) | WSL / Linux | HIGH/CRITICAL CVEs in installed OS packages (Trivy) plus advisories in project lockfiles (OSV-Scanner). |
@@ -210,6 +211,46 @@ Bundler, Composer). OS packages, Homebrew formulae, macOS apps and App Store app
 covered — there is no local CVE mapping for those on macOS; use `softwareupdate`, each
 vendor's advisories, and section 7 of the software audit instead.
 
+## Documents (PDF / Office)
+
+`documents/scan.py` statically inspects a file before you open it and reports the
+features malicious documents actually use.
+
+```bash
+./documents/scan.py file.pdf
+./documents/scan.py -r ~/Downloads
+./documents/scan.py --vt ~/Downloads/invoice.pdf   # + VirusTotal hash lookup
+```
+
+Checks:
+
+- **PDF** — `/OpenAction`, `/AA`, `/JavaScript`, `/Launch`, `/EmbeddedFile`, `/RichMedia`,
+  `/XFA`, encrypted payloads, EICAR.
+- **OOXML** — `vbaProject.bin`, external relationships (hyperlinks are only `low`), remote
+  `attachedTemplate`, `DDEAUTO`, embedded OLE objects, macro-enabled extensions.
+- **Legacy Office (.doc/.xls)** — auto-run macro entry points (`AutoOpen`, `Document_Open`, …)
+  and execution primitives (`WScript.Shell`, `CreateObject`, `powershell`, …).
+- **Filenames** — double extensions (`invoice.pdf.exe`) and right-to-left override tricks.
+
+Verdicts: `CLEAN`, `LOW-RISK`, `SUSPICIOUS`, `INFECTED`. Exit codes `0/1/2` (or `3` on read
+errors), so it works as a gate: `./documents/scan.py f.pdf || echo "do not open"`.
+
+Optional layers, used automatically when present:
+
+- **ClamAV** — real signatures instead of heuristics (`brew install clamav && freshclam`).
+- **VirusTotal** — set `VT_API_KEY` and pass `--vt` for hash reputation.
+
+### Why this exists
+
+macOS has no user-facing "scan this file" command. `xprotect` only manages updates, logs and
+status; XProtect itself scans silently at open/exec time with signatures only. None of
+Preview, Quick Look, Pages or Word exposes a pre-open verdict, and Quick Look renders PDFs
+with the same parsers that a malicious file targets.
+
+So: scan first, then open — ideally in a browser PDF viewer (PDF.js) or a disposable VM for
+anything flagged `SUSPICIOUS`, and never trust a document just because it arrived from a
+known sender.
+
 ## Caveats
 
 - **Stale Homebrew metadata.** `brew outdated` only knows about the tap state as of the last
@@ -235,3 +276,7 @@ vendor's advisories, and section 7 of the software audit instead.
   what the lockfiles say, not what runs — dev dependencies count even if never bundled.
 - **No CVE mapping for macOS apps.** "Outdated" in the software audit is not "vulnerable",
   and an up-to-date app can still be vulnerable. Nothing local knows that today.
+- **Document scanning is heuristic, not antivirus.** A `CLEAN` verdict means no known-bad
+  constructs were found, not that the file is safe. Corporate templates legitimately use
+  remote `attachedTemplate`/external relationships and come out `LOW-RISK`. Installing
+  ClamAV adds signature coverage; VirusTotal adds community reputation.

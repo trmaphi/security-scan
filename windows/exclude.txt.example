@@ -1,0 +1,4 @@
+# Package IDs that winget-upgrade.ps1 must never touch (one per line, # comments allowed).
+# Examples:
+# Microsoft.VisualStudioCode
+# Git.Git

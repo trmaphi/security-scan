@@ -1,0 +1,4 @@
+# One project directory per line. Lines starting with # are ignored. ~ is expanded.
+# Used by wsl/scan.sh for dependency scanning (OSV lockfile scan).
+# ~/source
+# ~/projects

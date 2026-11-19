@@ -2,3 +2,10 @@
 reports/
 snapshots/
 *.log
+bin/
+cache/
+*.zip
+windows/exclude.txt
+wsl/paths.txt
+__pycache__/
+*.pyc

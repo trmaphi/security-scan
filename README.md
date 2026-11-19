@@ -13,6 +13,7 @@ logs everything.
 | Scanner | Platform | What it answers |
 |---|---|---|
 | [`macos/software-audit.sh`](macos/software-audit.sh) | macOS | What is installed, what is outdated (Homebrew formulae/casks, App Store, macOS updates), and what changed in `/Applications` since last run. |
+| [`source/vuln-audit.sh`](source/vuln-audit.sh) | macOS / Linux / WSL | Known CVEs/GHSAs in project dependency lockfiles (OSV-Scanner), grouped by git repository with severity and advisory links. |
 | [`windows/vuln-scan.ps1`](windows/vuln-scan.ps1) | Windows | Outdated winget packages, pending Windows Update items, and HIGH/CRITICAL CVEs in dependency manifests (Trivy). |
 | [`windows/winget-upgrade.ps1`](windows/winget-upgrade.ps1) | Windows | Unattended winget upgrades that cannot hang on a UAC prompt. |
 | [`wsl/scan.sh`](wsl/scan.sh) | WSL / Linux | HIGH/CRITICAL CVEs in installed OS packages (Trivy) plus advisories in project lockfiles (OSV-Scanner). |
@@ -168,11 +169,46 @@ Each report contains:
 ```cron
 PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
-0 9 * * * /Users/<you>/source/security-scan/macos/software-audit.sh >> ~/software-audit/cron.log 2>&1
+0 9 * * * /Users/<you>/source/trmaphi/security-scan/macos/software-audit.sh >> ~/software-audit/cron.log 2>&1
 ```
 
 The script repairs its own `PATH` for cron's minimal environment, so the `PATH=` line is
 belt-and-braces rather than required.
+
+## Source dependency scanning (any platform)
+
+`source/vuln-audit.sh` uses [osv-scanner](https://google.github.io/osv-scanner/) to find
+known CVEs/GHSAs in dependency lockfiles, grouped by the enclosing git repository.
+
+### Requirements
+
+- `osv-scanner` (`brew install osv-scanner`, or run it from WSL)
+- `python3` (ships with macOS; any 3.x)
+- `git` for attributing findings to a repository (falls back to directory names)
+
+### Usage
+
+```bash
+# scan all repos under ~/source/trmaphi (default root)
+./source/vuln-audit.sh
+
+# scan specific roots (each may contain many repos)
+./source/vuln-audit.sh ~/source/trmaphi/scheduler ~/work/api
+
+SCAN_TIMEOUT=600 ./source/vuln-audit.sh   # cap scan time (default 900s)
+./source/vuln-audit.sh --no-fail          # exit 0 even with findings
+```
+
+Reports land in `~/security-scan/reports/vuln-scan-<timestamp>.md`, with a severity summary,
+a per-repository table (severity, package, version, advisory link, summary) and the last 30
+reports retained.
+
+Exit codes: `0` clean, `1` scan failed or timed out, `2` findings include HIGH or CRITICAL.
+
+Only dependency manifests are scanned (npm/pnpm/yarn, Go modules, pip/poetry/uv, Cargo,
+Bundler, Composer). OS packages, Homebrew formulae, macOS apps and App Store apps are **not**
+covered — there is no local CVE mapping for those on macOS; use `softwareupdate`, each
+vendor's advisories, and section 7 of the software audit instead.
 
 ## Caveats
 
@@ -194,3 +230,8 @@ belt-and-braces rather than required.
 - **Trivy database** must be downloadable (`ghcr.io` / `mirror.gcr.io`). Scanning is
   read-only; DBs are cached under `%USERPROFILE%\security-scan\cache` or
   `~/.cache/trivy` unless overridden.
+- **`vuln-audit.sh` severity is advisory-specific.** Go stdlib advisories in OSV carry no
+  severity score and show up as `UNKNOWN`; they are still real advisories. Findings reflect
+  what the lockfiles say, not what runs — dev dependencies count even if never bundled.
+- **No CVE mapping for macOS apps.** "Outdated" in the software audit is not "vulnerable",
+  and an up-to-date app can still be vulnerable. Nothing local knows that today.

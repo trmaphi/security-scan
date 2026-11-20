@@ -34,11 +34,22 @@ fi
 
 log "Trivy OS scan (severity $SEVERITY, fixed only)"
 SKIP_OS="/mnt,/proc,/sys,/dev,/run,/tmp,/var/lib/docker,/var/lib/containerd"
+
+os_json() {
+  "$TRIVY" rootfs / --pkg-types os --scanners vuln --severity "$SEVERITY" --ignore-unfixed \
+    --skip-dirs "$SKIP_OS" --format json --output "$OUT_DIR/os.json" --quiet 2>>"$LOG"
+}
+
+if ! os_json; then
+  # Usually a transient OCI/network failure while refreshing the DB; use the cached one.
+  log "OS json scan failed; retrying with cached DB (--skip-db-update)"
+  "$TRIVY" rootfs / --pkg-types os --scanners vuln --severity "$SEVERITY" --ignore-unfixed \
+    --skip-dirs "$SKIP_OS" --skip-db-update \
+    --format json --output "$OUT_DIR/os.json" --quiet 2>>"$LOG"
+fi
+
 "$TRIVY" rootfs / --pkg-types os --scanners vuln --severity "$SEVERITY" --ignore-unfixed \
-  --skip-dirs "$SKIP_OS" --format json --output "$OUT_DIR/os.json" --quiet 2>>"$LOG"
-log "OS json exit=$?"
-"$TRIVY" rootfs / --pkg-types os --scanners vuln --severity "$SEVERITY" --ignore-unfixed \
-  --skip-dirs "$SKIP_OS" --format table --output "$OUT_DIR/os.txt" --quiet 2>>"$LOG"
+  --skip-dirs "$SKIP_OS" --skip-db-update --format table --output "$OUT_DIR/os.txt" --quiet 2>>"$LOG"
 log "OS table exit=$?"
 
 if [ -n "$PYTHON" ] && [ -f "$SCRIPT_DIR/apt-status.py" ] && [ -f "$OUT_DIR/os.json" ]; then

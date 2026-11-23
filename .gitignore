@@ -7,5 +7,7 @@ cache/
 *.zip
 windows/exclude.txt
 wsl/paths.txt
+maintenance/exclude.txt
+maintenance/paths-windows.txt
 __pycache__/
 *.pyc

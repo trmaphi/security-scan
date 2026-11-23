@@ -324,6 +324,28 @@ crontab -l
 tail -20 ~/security-scan/logs/upgrades-*.log
 ```
 
+## Windows maintenance scripts (as deployed)
+
+[`maintenance/run-weekly.ps1`](maintenance/run-weekly.ps1) and
+[`maintenance/daily-upgrade.ps1`](maintenance/daily-upgrade.ps1) are the exact scripts installed on
+this workstation and wired to Task Scheduler, committed verbatim so the repo matches what actually runs:
+
+| Script | Scheduled task | Cadence |
+|---|---|---|
+| `maintenance/run-weekly.ps1` | `VulnScan Daily (Trivy + winget)` | daily 03:00 |
+| `maintenance/daily-upgrade.ps1` | `Winget Daily Upgrade` | daily 04:00 |
+
+They differ from the refactored [`windows/vuln-scan.ps1`](windows/vuln-scan.ps1) and
+[`windows/winget-upgrade.ps1`](windows/winget-upgrade.ps1) and are kept as an as-deployed snapshot
+rather than merged into them. Caveats:
+
+- Both derive everything from a hardcoded `$root` (`C:\Users\trmaphi\vulnscan`,
+  `C:\Users\trmaphi\winget-upgrade`), so they are not drop-in portable — edit that one line to relocate.
+- `run-weekly.ps1` reads `paths-windows.txt` for scan targets and delegates the WSL half to
+  `/home/trmaphi/vulnscan/scan-wsl.sh` inside the distro. `daily-upgrade.ps1` reads `exclude.txt`
+  next to itself. None of those config files are committed; `windows/exclude.txt.example` and
+  `wsl/paths.txt.example` show the shapes.
+
 ## Caveats
 
 - **Stale Homebrew metadata.** `brew outdated` only knows about the tap state as of the last

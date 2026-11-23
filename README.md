@@ -290,6 +290,32 @@ So: scan first, then open — ideally in a browser PDF viewer (PDF.js) or a disp
 anything flagged `SUSPICIOUS`, and never trust a document just because it arrived from a
 known sender.
 
+## Automated upgrades
+
+What runs without you, as of this repo's setup on macOS:
+
+| Layer | Mechanism | Cadence |
+|---|---|---|
+| Homebrew formulae + casks (incl. self-updating ones) | `brew autoupdate` (`--upgrade --cleanup --greedy`) | daily, launchd |
+| mise-managed CLIs, Codex CLI, App Store apps | [`upgrades/weekly.sh`](upgrades/weekly.sh) via cron | Sundays 10:00 |
+| macOS system updates | System Settings → auto download/install | automatic |
+| App Store apps (fallback) | App Store → Automatic Updates | automatic |
+| Claude Code CLI | `autoUpdates: true` in `~/.claude.json` | self-updating |
+| Claude / Cursor / DeepSeek Harness apps | vendor updaters (casks are `auto_updates`), plus brew greedy as backstop | self-updating |
+| mise | `weekly.sh` → `mise upgrade` | weekly |
+
+`upgrades/weekly.sh` logs to `~/security-scan/logs/upgrades-YYYY-MM-DD.log`, supports
+`DRY_RUN=1`, and exits non-zero if any step fails. `mas upgrade` needs root; it runs only when
+passwordless `sudo` is available, otherwise the App Store auto-update toggle is the fallback.
+
+Check status any time:
+
+```bash
+brew autoupdate status
+crontab -l
+tail -20 ~/security-scan/logs/upgrades-*.log
+```
+
 ## Caveats
 
 - **Stale Homebrew metadata.** `brew outdated` only knows about the tap state as of the last

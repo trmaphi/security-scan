@@ -297,16 +297,24 @@ What runs without you, as of this repo's setup on macOS:
 | Layer | Mechanism | Cadence |
 |---|---|---|
 | Homebrew formulae + casks (incl. self-updating ones) | `brew autoupdate` (`--upgrade --cleanup --greedy`) | daily, launchd |
-| mise-managed CLIs, Codex CLI, App Store apps | [`upgrades/weekly.sh`](upgrades/weekly.sh) via cron | Sundays 10:00 |
+| mise-managed CLIs + Codex CLI | [`upgrades/daily.sh`](upgrades/daily.sh) via launchd | daily, 10:00 |
+| App Store apps | [`upgrades/weekly.sh`](upgrades/weekly.sh) via cron | Sundays 10:00 |
+| Installed-software audit | [`macos/software-audit.sh`](macos/software-audit.sh) | Mondays, 09:00 (self-gated) |
 | macOS system updates | System Settings → auto download/install | automatic |
 | App Store apps (fallback) | App Store → Automatic Updates | automatic |
 | Claude Code CLI | `autoUpdates: true` in `~/.claude.json` | self-updating |
 | Claude / Cursor / DeepSeek Harness apps | vendor updaters (casks are `auto_updates`), plus brew greedy as backstop | self-updating |
 | mise | `weekly.sh` → `mise upgrade` | weekly |
 
-`upgrades/weekly.sh` logs to `~/security-scan/logs/upgrades-YYYY-MM-DD.log`, supports
-`DRY_RUN=1`, and exits non-zero if any step fails. `mas upgrade` needs root; it runs only when
-passwordless `sudo` is available, otherwise the App Store auto-update toggle is the fallback.
+`upgrades/daily.sh` logs to `~/security-scan/logs/daily-YYYY-MM-DD.log`, `upgrades/weekly.sh` to
+`appstore-YYYY-MM-DD.log`. Both support `DRY_RUN=1` and exit non-zero if any step fails.
+`mas upgrade` needs root; it runs only when passwordless `sudo` is available, otherwise the
+App Store auto-update toggle is the fallback.
+
+The audit's cron entry fires daily at 09:00 but `crontab` writes currently return `EPERM` on
+this machine, so the script self-gates: non-interactive runs only proceed on Mondays
+(`AUDIT_FORCE=1` overrides). Daily upgrades run under launchd
+(`io.trmaphi.security-scan.daily`) instead.
 
 Check status any time:
 

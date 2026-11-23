@@ -24,6 +24,15 @@
 
 set -uo pipefail
 
+# The original cron entry fires daily at 09:00 and cannot be edited in place on this
+# machine (crontab writes return EPERM), so the audit self-gates to a weekly run:
+# non-interactive invocations (cron/launchd) only proceed on Mondays. Override with
+# AUDIT_FORCE=1, e.g. when you want an extra ad-hoc report.
+if [[ ! -t 0 && ! -t 1 && "${AUDIT_FORCE:-0}" != "1" && "$(date +%u)" != "1" ]]; then
+    echo "software-audit: skipped (weekly schedule, Mondays only; AUDIT_FORCE=1 to override)"
+    exit 0
+fi
+
 OUT_DIR="${OUT_DIR:-$HOME/software-audit}"
 KEEP="${KEEP:-30}"
 BREW_UPDATE="${BREW_UPDATE:-1}"   # 1 = run `brew update` first, 0 = skip

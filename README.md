@@ -309,7 +309,8 @@ python3 dashboard/server.py        # http://127.0.0.1:8787
 Why a build step for the static page: browsers refuse to `fetch()` arbitrary `file://` URLs
 (CORS), so a plain HTML file cannot read `~/software-audit/reports/*.md` on its own. `build.py`
 parses the Markdown with the same code as the server and inlines the result, so the output is
-self-contained and works from `file://`. It is gitignored because it contains your inventory.
+self-contained and works from `file://`. It is gitignored because it contains your inventory,
+and `macos/software-audit.sh` rebuilds it automatically after every run.
 
 Endpoints (server mode): `/` HTML, `/api/summary` JSON, `/report/audit`, `/report/vuln`.
 

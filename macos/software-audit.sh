@@ -38,6 +38,8 @@ KEEP="${KEEP:-30}"
 BREW_UPDATE="${BREW_UPDATE:-1}"   # 1 = run `brew update` first, 0 = skip
 SU_TIMEOUT="${SU_TIMEOUT:-90}"    # softwareupdate -l can hang on bad networks
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 STAMP="$(date +%Y-%m-%d_%H%M%S)"
 HUMAN_STAMP="$(date '+%Y-%m-%d %H:%M %Z')"
 
@@ -310,4 +312,9 @@ echo "Homebrew metadata: $BREW_UPDATE_STATUS"
 echo "Outdated: ${N_FORMULA} formulae, ${N_CASK} casks (${N_CASK_GREEDY} incl. greedy), ${N_MAS} App Store, ${N_SU} macOS updates"
 if [[ -n "$PREV_APPS" ]]; then
     echo "App changes: +${N_ADDED} / -${N_REMOVED}"
+fi
+
+# Keep the static dashboard in sync when it has been built at least once.
+if [[ -f "$SCRIPT_DIR/../dashboard/build.py" ]] && command -v python3 >/dev/null 2>&1; then
+    python3 "$SCRIPT_DIR/../dashboard/build.py" >/dev/null 2>&1 || true
 fi

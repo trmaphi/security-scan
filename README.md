@@ -312,7 +312,9 @@ parses the Markdown with the same code as the server and inlines the result, so 
 self-contained and works from `file://`. It is gitignored because it contains your inventory,
 and `macos/software-audit.sh` rebuilds it automatically after every run.
 
-Endpoints (server mode): `/` HTML, `/api/summary` JSON, `/report/audit`, `/report/vuln`.
+Endpoints (server mode): `/` HTML, `/api/summary` JSON, `/report/audit`, `/report/vuln`,
+`/browse` (path-based file browser over the report/log dirs), `/file?p=<abs path>`
+(only paths under those dirs; anything else is 403).
 
 It binds to `127.0.0.1` only, never writes, and has no dependencies beyond the system
 `/usr/bin/python3`. It shows: outdated formulae/casks, pending macOS and App Store updates,

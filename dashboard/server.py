@@ -29,6 +29,7 @@ import subprocess
 from datetime import datetime
 from glob import glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import quote
 
 HOME = os.path.expanduser("~")
 AUDIT_DIR = os.path.join(HOME, "software-audit", "reports")
@@ -36,6 +37,10 @@ VULN_DIR = os.path.join(HOME, "security-scan", "reports")
 LOG_DIR = os.path.join(HOME, "security-scan", "logs")
 
 PATH_ENV = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+# Directories the file browser may read. Everything else is refused.
+BROWSE_ROOTS = [AUDIT_DIR, VULN_DIR, LOG_DIR]
+
 
 
 # --------------------------------------------------------------------------
@@ -252,6 +257,51 @@ def collect() -> dict:
     }
 
 
+def browse_entries() -> list[dict]:
+    """Flat listing of the report/log files under BROWSE_ROOTS."""
+    entries = []
+    for root in BROWSE_ROOTS:
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for name in sorted(filenames):
+                full = os.path.join(dirpath, name)
+                try:
+                    st = os.stat(full)
+                except OSError:
+                    continue
+                entries.append({
+                    "path": full,
+                    "root": os.path.basename(os.path.dirname(root)) + "/" + os.path.basename(root),
+                    "size": st.st_size,
+                    "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M"),
+                })
+    entries.sort(key=lambda e: e["mtime"], reverse=True)
+    return entries
+
+
+def allowed(path: str) -> bool:
+    real = os.path.realpath(path)
+    return os.path.isfile(real) and any(real.startswith(os.path.realpath(r) + os.sep) for r in BROWSE_ROOTS)
+
+
+def render_browse() -> str:
+    rows = "".join(
+        f"<tr><td><a href=\"/file?p={quote(e['path'])}\">{esc(os.path.basename(e['path']))}</a></td>"
+        f"<td class='muted'>{esc(e['root'])}</td>"
+        f"<td class='muted'>{esc(os.path.dirname(e['path']))}</td>"
+        f"<td class='num'>{e['size']:,}</td><td class='muted'>{esc(e['mtime'])}</td></tr>"
+        for e in browse_entries()
+    ) or "<tr><td colspan=5 class='muted'>no files found</td></tr>"
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Files</title>
+<style>{CSS}</style></head><body>
+<header><h1>Files</h1><div class="sub">reports and logs readable by this dashboard</div></header>
+<main><div class="card"><table>
+<tr><th>file</th><th>root</th><th>directory</th><th class="num">bytes</th><th>modified</th></tr>
+{rows}</table></div>
+<p><a href="/">&larr; back to dashboard</a></p></main></body></html>"""
+
+
 # --------------------------------------------------------------------------
 # rendering
 # --------------------------------------------------------------------------
@@ -418,7 +468,7 @@ def render(data: dict) -> str:
     </table>
   </div>
 </main>
-<footer>read-only dashboard · localhost only · data: {esc(AUDIT_DIR)} and {esc(VULN_DIR)}</footer>
+<footer><a href="/browse">browse files by path</a> · read-only dashboard · localhost only · data: {esc(AUDIT_DIR)} and {esc(VULN_DIR)}</footer>
 </body></html>"""
 
 
@@ -450,6 +500,15 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/report/vuln":
                 self._send(read(newest(os.path.join(VULN_DIR, "vuln-scan-*.md"))).encode(),
                            ctype="text/plain; charset=utf-8")
+            elif path == "/browse":
+                self._send(render_browse().encode())
+            elif path.startswith("/file"):
+                from urllib.parse import parse_qs, urlparse
+                target = parse_qs(urlparse(self.path).query).get("p", [""])[0]
+                if not target or not allowed(target):
+                    self._send(b"forbidden or missing path", status=403, ctype="text/plain")
+                else:
+                    self._send(read(target).encode(), ctype="text/plain; charset=utf-8")
             else:
                 self._send(b"not found", status=404, ctype="text/plain")
         except Exception as exc:  # noqa: BLE001

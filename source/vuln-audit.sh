@@ -18,6 +18,8 @@
 #   KEEP=10 ./vuln-audit.sh                  # reports to keep (default 30)
 #   SCAN_TIMEOUT=600 ./vuln-audit.sh         # kill scan after N seconds (default 900)
 #   ./vuln-audit.sh --no-fail                # always exit 0
+#   ./vuln-audit.sh --active                 # only repos you committed to in the last 60 days
+#   ./vuln-audit.sh --active=30              # ...same, custom window
 #
 # Exit codes: 0 = clean, 1 = scanner missing / scan unusable / timed out,
 #             2 = findings include HIGH or CRITICAL (disable with --no-fail).
@@ -29,9 +31,18 @@ OUT_DIR="${OUT_DIR:-$HOME/security-scan}"
 KEEP="${KEEP:-30}"
 SCAN_TIMEOUT="${SCAN_TIMEOUT:-900}"
 FAIL_ON_FINDINGS=1
-[[ "${1:-}" == "--no-fail" ]] && { FAIL_ON_FINDINGS=0; shift; }
-
-ROOTS=("$@")
+ACTIVE_DAYS=0
+ROOTS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --no-fail)   FAIL_ON_FINDINGS=0 ;;
+        --active)    ACTIVE_DAYS=60 ;;
+        --active=*)  ACTIVE_DAYS="${1#*=}" ;;
+        -h|--help)   sed -n '1,30p' "$0"; exit 0 ;;
+        *)           ROOTS+=("$1") ;;
+    esac
+    shift
+done
 [[ ${#ROOTS[@]} -eq 0 ]] && ROOTS=("$SCAN_ROOT")
 
 STAMP="$(date +%Y-%m-%d_%H%M%S)"
@@ -59,6 +70,38 @@ if [[ ${#VALID_ROOTS[@]} -eq 0 ]]; then
     exit 1
 fi
 
+# --active: keep only repositories this git user committed to recently.
+ACTIVE_NOTE=""
+if [[ "$ACTIVE_DAYS" -gt 0 ]]; then
+    AUTHOR="$(git config user.email 2>/dev/null || true)"
+    if [[ -z "$AUTHOR" ]]; then
+        echo "no git user.email configured — cannot determine activity" >&2
+        exit 1
+    fi
+    ACTIVE=()
+    for root in "${VALID_ROOTS[@]}"; do
+        is_repo() { [[ -d "$1/.git" ]]; }
+        recent()  { git -C "$1" log --since="$ACTIVE_DAYS days ago" --author="$AUTHOR" --oneline -1 2>/dev/null | grep -q .; }
+        if is_repo "$root"; then
+            recent "$root" && ACTIVE+=("$root")
+            continue
+        fi
+        for d in "$root"/*/; do
+            d="${d%/}"
+            is_repo "$d" || continue
+            recent "$d" && ACTIVE+=("$d")
+        done
+    done
+    if [[ ${#ACTIVE[@]} -eq 0 ]]; then
+        echo "no repositories with commits by $AUTHOR in the last $ACTIVE_DAYS days" >&2
+        exit 1
+    fi
+    VALID_ROOTS=("${ACTIVE[@]}")
+    ACTIVE_NOTE="active only — commits by ${AUTHOR} in the last ${ACTIVE_DAYS} days"
+    echo "scope: ${#VALID_ROOTS[@]} active repositories"
+    printf '  %s\n' "${VALID_ROOTS[@]##*/}"
+fi
+
 OSV_VERSION="$("$OSV" --version 2>&1 | head -n 1 | tr -d '\r')"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -67,6 +110,7 @@ trap 'rm -rf "$TMP"' EXIT
     printf '# Source Vulnerability Scan — %s\n\n' "$HUMAN_STAMP"
     printf -- '- **Scanner:** %s\n' "${OSV_VERSION:-osv-scanner (version unknown)}"
     printf -- '- **Advisory source:** [OSV.dev](https://osv.dev) (CVE / GHSA / Go vulndb)\n'
+    [[ -n "$ACTIVE_NOTE" ]] && printf -- '- **Scope:** %s\n' "$ACTIVE_NOTE"
     for r in "${VALID_ROOTS[@]}"; do
         printf -- '- **Root:** `%s`\n' "$r"
     done

@@ -235,6 +235,10 @@ known CVEs/GHSAs in dependency lockfiles, grouped by the enclosing git repositor
 # scan specific roots (each may contain many repos)
 ./source/vuln-audit.sh ~/source/trmaphi/scheduler ~/work/api
 
+# only repos you actually committed to lately (default 60 days)
+./source/vuln-audit.sh --active
+./source/vuln-audit.sh --active=30
+
 SCAN_TIMEOUT=600 ./source/vuln-audit.sh   # cap scan time (default 900s)
 ./source/vuln-audit.sh --no-fail          # exit 0 even with findings
 ```
@@ -244,6 +248,10 @@ a per-repository table (severity, package, version, advisory link, summary) and 
 reports retained.
 
 Exit codes: `0` clean, `1` scan failed or timed out, `2` findings include HIGH or CRITICAL.
+
+`--active` filters the roots down to git repositories where `git config user.email` authored a
+commit within the window (default 60 days), which drops forks, vendored clones and abandoned
+experiments out of the numbers. The report records the scope it used.
 
 Only dependency manifests are scanned (npm/pnpm/yarn, Go modules, pip/poetry/uv, Cargo,
 Bundler, Composer). OS packages, Homebrew formulae, macOS apps and App Store apps are **not**

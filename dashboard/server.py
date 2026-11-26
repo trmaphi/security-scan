@@ -148,6 +148,7 @@ def collect_vuln() -> dict:
         "total": 0,
         "packages": 0,
         "repos": 0,
+        "scope": "",
         "top": [],
     }
     if not text:
@@ -156,6 +157,9 @@ def collect_vuln() -> dict:
     m = re.search(r"^# Source Vulnerability Scan — (.+)$", text, re.M)
     if m:
         data["generated"] = m.group(1).strip()
+    m = re.search(r"^- \*\*Scope:\*\* (.+)$", text, re.M)
+    if m:
+        data["scope"] = m.group(1).strip()
 
     for row in table_rows(section(text, "Summary")):
         if len(row) >= 2:
@@ -514,7 +518,7 @@ def render(data: dict) -> str:
   <h2>Actions <span class="muted">({len(data['actions'])})</span></h2>
   <div class="card"><table><tr><th>priority</th><th>action</th><th>command</th></tr>{action_rows}</table></div>
 
-  <h2>Vulnerabilities <span class="muted">({esc(v['generated'] or 'no scan')})</span> {vuln_pill}</h2>
+  <h2>Vulnerabilities <span class="muted">({esc(v['generated'] or 'no scan')}{' · ' + esc(v['scope']) if v['scope'] else ''})</span> {vuln_pill}</h2>
   <div class="row">
     <div class="card"><table>{vuln_rows}</table></div>
     <div class="card"><table><tr><th>Top repos</th><th class="num">advisories</th></tr>{top_rows}</table>

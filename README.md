@@ -325,8 +325,9 @@ Endpoints (server mode): `/` HTML, `/api/summary` JSON, `/report/audit`, `/repor
 
 It binds to `127.0.0.1` only, never writes, and has no dependencies beyond the system
 `/usr/bin/python3`. Sections: stat cards, **Actions** (prioritised next steps with copyable
-commands), vulnerabilities by severity + top repos, upgrade status with mise failures,
-schedules, and **Reports** (last 8 audit and vulnerability reports, clickable).
+commands), vulnerabilities by severity **and by repository** (critical/high/total, plus the
+scope line and scanned repo list), upgrade status with mise failures, schedules, and
+**Reports** (last 8 audit and vulnerability reports, clickable).
 
 ## Automated upgrades
 

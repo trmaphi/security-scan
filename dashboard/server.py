@@ -149,6 +149,8 @@ def collect_vuln() -> dict:
         "packages": 0,
         "repos": 0,
         "scope": "",
+        "roots": [],
+        "repo_stats": [],
         "top": [],
     }
     if not text:
@@ -171,8 +173,24 @@ def collect_vuln() -> dict:
                 data["severities"][name.upper()] = as_int(row[1])
 
     data["repos"] = len(re.findall(r"^### ", text, re.M))
-    top = re.findall(r"^### (.+?) — (\d+) advisories", text, re.M)
-    data["top"] = [{"repo": r, "count": int(c)} for r, c in top[:4]]
+    data["roots"] = [os.path.basename(p.rstrip("/")) for p in
+                     re.findall(r"^- \*\*Root:\*\* `(.+?)`$", text, re.M)]
+
+    stats = []
+    for chunk in re.split(r"^### ", text, flags=re.M)[1:]:
+        head, _, body = chunk.partition("\n")
+        m = re.match(r"(.+?) — (\d+) advisories", head)
+        if not m:
+            continue
+        stats.append({
+            "repo": m.group(1).strip(),
+            "total": int(m.group(2)),
+            "critical": len(re.findall(r"^\| CRITICAL \|", body, re.M)),
+            "high": len(re.findall(r"^\| HIGH \|", body, re.M)),
+        })
+    stats.sort(key=lambda r: (-r["critical"], -r["high"], -r["total"]))
+    data["repo_stats"] = stats
+    data["top"] = [{"repo": r["repo"], "count": r["total"]} for r in stats[:4]]
     return data
 
 
@@ -481,9 +499,15 @@ def render(data: dict) -> str:
         for k, n in v["severities"].items()
     ) or "<tr><td colspan=2 class='muted'>no vulnerability report yet — run <code>./source/vuln-audit.sh</code></td></tr>"
 
-    top_rows = "".join(
-        f"<tr><td>{esc(t['repo'])}</td><td class='num'>{t['count']}</td></tr>" for t in v["top"]
-    ) or "<tr><td colspan=2 class='muted'>—</td></tr>"
+    repo_rows = ""
+    for r in v["repo_stats"]:
+        crit_cell = f'<span class="pill bad">{r["critical"]}</span>' if r["critical"] else str(r["critical"])
+        repo_rows += (
+            f"<tr><td>{esc(r['repo'])}</td><td class='num'>{crit_cell}</td>"
+            f"<td class='num'>{r['high']}</td><td class='num'>{r['total']}</td></tr>"
+        )
+    if not repo_rows:
+        repo_rows = "<tr><td colspan=4 class='muted'>no repository findings</td></tr>"
 
     failed_rows = "".join(
         f"<tr><td><code>{esc(f['tool'])}</code></td><td class='muted'>{esc(f['error'])}</td></tr>"
@@ -518,10 +542,12 @@ def render(data: dict) -> str:
   <h2>Actions <span class="muted">({len(data['actions'])})</span></h2>
   <div class="card"><table><tr><th>priority</th><th>action</th><th>command</th></tr>{action_rows}</table></div>
 
-  <h2>Vulnerabilities <span class="muted">({esc(v['generated'] or 'no scan')}{' · ' + esc(v['scope']) if v['scope'] else ''})</span> {vuln_pill}</h2>
+  <h2>Vulnerabilities <span class="muted">({esc(v['generated'] or 'no scan')})</span> {vuln_pill}</h2>
+  <div class="sub" style="margin:0 0 10px">scope: {esc(v['scope'] or 'all repositories')} · {v['repos']} repos with findings{(' · scanned: ' + esc(', '.join(v['roots']))) if v['roots'] else ''}</div>
   <div class="row">
-    <div class="card"><table>{vuln_rows}</table></div>
-    <div class="card"><table><tr><th>Top repos</th><th class="num">advisories</th></tr>{top_rows}</table>
+    <div class="card"><div class="k" style="margin-bottom:8px">by severity</div><table>{vuln_rows}</table></div>
+    <div class="card"><div class="k" style="margin-bottom:8px">by repository</div>
+      <table><tr><th>repo</th><th class="num">crit</th><th class="num">high</th><th class="num">total</th></tr>{repo_rows}</table>
       <div class="muted" style="margin-top:8px">full report: <a href="/report/vuln">vuln-scan.md</a></div></div>
   </div>
 

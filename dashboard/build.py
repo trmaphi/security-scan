@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from server import collect, render  # noqa: E402
+from server import AUDIT_DIR, VULN_DIR, collect, render  # noqa: E402
 
 
 def file_url(path: str | None) -> str:
@@ -35,6 +35,11 @@ def build() -> tuple[str, dict]:
     # Static page: links point at the report files, not at HTTP endpoints.
     page = page.replace('href="/report/audit"', f'href="{file_url(data["audit"]["path"])}"')
     page = page.replace('href="/report/vuln"', f'href="{file_url(data["vuln"]["path"])}"')
+    # History tables: /report/<kind>/<file> -> file:// URIs for the static page.
+    page = re.sub(r'href="/report/audit/([^"]+)"',
+                  lambda m: f'href="{Path(AUDIT_DIR, m.group(1)).as_uri()}"', page)
+    page = re.sub(r'href="/report/vuln/([^"]+)"',
+                  lambda m: f'href="{Path(VULN_DIR, m.group(1)).as_uri()}"', page)
     page = page.replace("localhost only", "static build")
     page = re.sub(r'<meta http-equiv="refresh"[^>]*>', "", page)
     return page, data

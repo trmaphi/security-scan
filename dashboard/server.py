@@ -29,7 +29,6 @@ import subprocess
 from datetime import datetime
 from glob import glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import quote
 
 HOME = os.path.expanduser("~")
 AUDIT_DIR = os.path.join(HOME, "software-audit", "reports")
@@ -37,9 +36,6 @@ VULN_DIR = os.path.join(HOME, "security-scan", "reports")
 LOG_DIR = os.path.join(HOME, "security-scan", "logs")
 
 PATH_ENV = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-
-# Directories the file browser may read. Everything else is refused.
-BROWSE_ROOTS = [AUDIT_DIR, VULN_DIR, LOG_DIR]
 
 
 
@@ -247,59 +243,110 @@ def collect_services() -> dict:
     }
 
 
-def collect() -> dict:
+def collect_reports() -> dict:
+    def entries(directory: str, pattern: str, kind: str) -> list[dict]:
+        out = []
+        for f in sorted(glob(os.path.join(directory, pattern)),
+                        key=os.path.getmtime, reverse=True)[:8]:
+            st = os.stat(f)
+            out.append({
+                "name": os.path.basename(f),
+                "size": st.st_size,
+                "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M"),
+                "link": f"/report/{kind}/{os.path.basename(f)}",
+            })
+        return out
     return {
+        "audit": entries(AUDIT_DIR, "software-audit-*.md", "audit"),
+        "vuln": entries(VULN_DIR, "vuln-scan-*.md", "vuln"),
+    }
+
+
+def days_old(stamp: str) -> int | None:
+    if not stamp:
+        return None
+    try:
+        dt = datetime.strptime(stamp.strip(), "%Y-%m-%d %H:%M %z")
+    except ValueError:
+        return None
+    return (datetime.now(dt.tzinfo) - dt).days
+
+
+def collect_actions(data: dict) -> list[dict]:
+    """Prioritised next actions derived from the reports."""
+    acts: list[dict] = []
+    m = data["audit"]["metrics"]
+    v = data["vuln"]
+    crit = v["severities"].get("CRITICAL", 0)
+    high = v["severities"].get("HIGH", 0)
+    age = days_old(v["generated"])
+
+    if v["available"] and (age is None or age > 7):
+        acts.append({
+            "priority": "high" if crit else "medium",
+            "title": f"Re-run the vulnerability scan (stale{f' {age}d' if age is not None else ''})",
+            "why": f"last scan {v['generated'] or 'never'} — advisories change daily",
+            "cmd": "./source/vuln-audit.sh",
+        })
+    if crit or high:
+        acts.append({
+            "priority": "high",
+            "title": f"Triage {crit} critical / {high} high CVEs",
+            "why": "dependency advisories in your repos; see the report below",
+            "cmd": "open ~/security-scan/reports/$(ls -t ~/security-scan/reports | head -1)",
+        })
+    if m.get("macOS updates available", 0):
+        acts.append({
+            "priority": "high",
+            "title": f"Install {m['macOS updates available']} macOS updates",
+            "why": "Safari and OS security patches",
+            "cmd": "sudo softwareupdate -i -a",
+        })
+    if m.get("App Store updates (mas)", 0):
+        acts.append({
+            "priority": "medium",
+            "title": f"Update {m['App Store updates (mas)']} App Store apps",
+            "why": "mas needs root, so the weekly job skips them",
+            "cmd": "sudo mas upgrade",
+        })
+    if m.get("Outdated formulae", 0):
+        acts.append({
+            "priority": "medium",
+            "title": f"Upgrade {m['Outdated formulae']} Homebrew formulae",
+            "why": "brew autoupdate runs daily — this usually clears itself",
+            "cmd": "brew upgrade",
+        })
+    greedy = m.get("Outdated casks (incl. greedy/self-updating)", 0)
+    if greedy:
+        acts.append({
+            "priority": "medium",
+            "title": f"Upgrade {greedy} self-updating casks",
+            "why": "apps that normally update themselves; brew can force them",
+            "cmd": "brew upgrade --cask --greedy",
+        })
+    failed = data["upgrades"]["daily"]["mise_failed"]
+    if failed:
+        tools = " ".join(f"--exclude {f['tool'].split('@')[0]}" for f in failed)
+        acts.append({
+            "priority": "low",
+            "title": f"Work around {len(failed)} mise failures",
+            "why": ", ".join(f["tool"] for f in failed) + " — upstream asset naming",
+            "cmd": f"mise upgrade {tools}",
+        })
+    return acts
+
+
+def collect() -> dict:
+    data = {
         "generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "audit": collect_audit(),
         "vuln": collect_vuln(),
         "upgrades": collect_upgrades(),
         "services": collect_services(),
     }
-
-
-def browse_entries() -> list[dict]:
-    """Flat listing of the report/log files under BROWSE_ROOTS."""
-    entries = []
-    for root in BROWSE_ROOTS:
-        if not os.path.isdir(root):
-            continue
-        for dirpath, _dirnames, filenames in os.walk(root):
-            for name in sorted(filenames):
-                full = os.path.join(dirpath, name)
-                try:
-                    st = os.stat(full)
-                except OSError:
-                    continue
-                entries.append({
-                    "path": full,
-                    "root": os.path.basename(os.path.dirname(root)) + "/" + os.path.basename(root),
-                    "size": st.st_size,
-                    "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M"),
-                })
-    entries.sort(key=lambda e: e["mtime"], reverse=True)
-    return entries
-
-
-def allowed(path: str) -> bool:
-    real = os.path.realpath(path)
-    return os.path.isfile(real) and any(real.startswith(os.path.realpath(r) + os.sep) for r in BROWSE_ROOTS)
-
-
-def render_browse() -> str:
-    rows = "".join(
-        f"<tr><td><a href=\"/file?p={quote(e['path'])}\">{esc(os.path.basename(e['path']))}</a></td>"
-        f"<td class='muted'>{esc(e['root'])}</td>"
-        f"<td class='muted'>{esc(os.path.dirname(e['path']))}</td>"
-        f"<td class='num'>{e['size']:,}</td><td class='muted'>{esc(e['mtime'])}</td></tr>"
-        for e in browse_entries()
-    ) or "<tr><td colspan=5 class='muted'>no files found</td></tr>"
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Files</title>
-<style>{CSS}</style></head><body>
-<header><h1>Files</h1><div class="sub">reports and logs readable by this dashboard</div></header>
-<main><div class="card"><table>
-<tr><th>file</th><th>root</th><th>directory</th><th class="num">bytes</th><th>modified</th></tr>
-{rows}</table></div>
-<p><a href="/">&larr; back to dashboard</a></p></main></body></html>"""
+    data["reports"] = collect_reports()
+    data["actions"] = collect_actions(data)
+    return data
 
 
 # --------------------------------------------------------------------------
@@ -335,6 +382,11 @@ a { color: #7cb0ff; text-decoration: none; }
 .row { display: flex; gap: 18px; flex-wrap: wrap; }
 .row > * { flex: 1 1 320px; }
 footer { color: #626a79; font-size: 12px; padding: 0 32px 32px; }
+button.copy { background: #202634; color: #cfd5e2; border: 1px solid #2c3343; border-radius: 6px;
+              padding: 2px 8px; font-size: 11px; cursor: pointer; margin-left: 6px; }
+button.copy:hover { background: #283042; }
+td.act-title strong { font-weight: 600; }
+
 """
 
 
@@ -345,6 +397,18 @@ def pill(ok: bool | None, text: str) -> str:
 
 def esc(value: object) -> str:
     return html.escape(str(value))
+
+
+SCRIPT = """<script>
+document.querySelectorAll("button.copy").forEach(function (b) {
+  b.addEventListener("click", function () {
+    var done = function () { b.textContent = "copied"; setTimeout(function () { b.textContent = "copy"; }, 1200); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(b.dataset.cmd).then(done, done);
+    } else { done(); }
+  });
+});
+</script>"""
 
 
 def render(data: dict) -> str:
@@ -362,7 +426,6 @@ def render(data: dict) -> str:
 
     daily_ok = u["daily"]["ok"]
     daily_pill = pill(daily_ok, "last run ok" if daily_ok else ("last run failed" if daily_ok is False else "no run yet"))
-
     vuln_pill = pill(crit == 0, f"{crit} critical")
     brew = s["brew"]
     brew_pill = pill(brew["installed"], "autoupdate active" if brew["installed"] else "autoupdate off")
@@ -392,6 +455,22 @@ def render(data: dict) -> str:
         <div class="muted">mise failures · {daily_pill}</div></div>
     </div>
     """
+
+    prio_class = {"high": "bad", "medium": "warn", "low": "ok"}
+    action_rows = "".join(
+        f"""<tr><td><span class="pill {prio_class.get(act['priority'], 'warn')}">{esc(act['priority'])}</span></td>
+        <td class="act-title"><strong>{esc(act['title'])}</strong>
+          <div class="muted">{esc(act['why'])}</div></td>
+        <td><code>{esc(act['cmd'])}</code><button class="copy" data-cmd="{esc(act['cmd'])}">copy</button></td></tr>"""
+        for act in data["actions"]
+    ) or "<tr><td colspan=3 class='muted'>nothing to do — all clear</td></tr>"
+
+    def report_rows(rows: list[dict]) -> str:
+        return "".join(
+            f"<tr><td><a href=\"{r['link']}\">{esc(r['name'])}</a></td>"
+            f"<td class='muted'>{esc(r['mtime'])}</td><td class='num'>{r['size'] // 1024}</td></tr>"
+            for r in rows
+        ) or "<tr><td colspan=3 class='muted'>no reports yet</td></tr>"
 
     vuln_rows = "".join(
         f"<tr><td>{esc(k)}</td><td class='num'>{n}</td></tr>"
@@ -432,6 +511,9 @@ def render(data: dict) -> str:
 <main>
   {cards}
 
+  <h2>Actions <span class="muted">({len(data['actions'])})</span></h2>
+  <div class="card"><table><tr><th>priority</th><th>action</th><th>command</th></tr>{action_rows}</table></div>
+
   <h2>Vulnerabilities <span class="muted">({esc(v['generated'] or 'no scan')})</span> {vuln_pill}</h2>
   <div class="row">
     <div class="card"><table>{vuln_rows}</table></div>
@@ -445,7 +527,7 @@ def render(data: dict) -> str:
       <table>
         <tr><th>Daily CLI pass</th><td>{esc(u['daily']['started'] or '—')}</td></tr>
         <tr><th>Codex CLI</th><td>{esc(u['daily']['codex'] or '—')}</td></tr>
-        <tr><th>App Store</th><td>{u['appstore']['pending']} pending · {esc(u['appstore']['note'] or '—')}</td></tr>
+        <tr><th>App Store</th><td>{appstore} pending · {esc(u['appstore']['note'] or '—')}</td></tr>
         <tr><th>Brew autoupdate</th><td>{brew_pill} {esc(brew['schedule'])}</td></tr>
       </table>
       <div class="muted" style="margin-top:8px">logs: <code>~/security-scan/logs/</code></div>
@@ -460,16 +542,19 @@ def render(data: dict) -> str:
   <div class="card"><table><tr><th>when</th><th>job</th></tr>{schedule_rows}</table></div>
 
   <h2>Reports</h2>
-  <div class="card">
-    <table>
-      <tr><th>Report</th><th>Generated</th></tr>
-      <tr><td><a href="/report/audit">software-audit.md</a></td><td>{esc(a['generated'] or '—')}</td></tr>
-      <tr><td><a href="/report/vuln">vuln-scan.md</a></td><td>{esc(v['generated'] or '—')}</td></tr>
-    </table>
+  <div class="row">
+    <div class="card">
+      <div class="k" style="margin-bottom:8px">software audit</div>
+      <table><tr><th>file</th><th>date</th><th class="num">KB</th></tr>{report_rows(data['reports']['audit'])}</table>
+    </div>
+    <div class="card">
+      <div class="k" style="margin-bottom:8px">vulnerability scans</div>
+      <table><tr><th>file</th><th>date</th><th class="num">KB</th></tr>{report_rows(data['reports']['vuln'])}</table>
+    </div>
   </div>
 </main>
-<footer><a href="/browse">browse files by path</a> · read-only dashboard · localhost only · data: {esc(AUDIT_DIR)} and {esc(VULN_DIR)}</footer>
-</body></html>"""
+<footer>read-only dashboard · localhost only · data: {esc(AUDIT_DIR)} and {esc(VULN_DIR)}</footer>
+</body></html>""" + SCRIPT
 
 
 # --------------------------------------------------------------------------
@@ -500,15 +585,16 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/report/vuln":
                 self._send(read(newest(os.path.join(VULN_DIR, "vuln-scan-*.md"))).encode(),
                            ctype="text/plain; charset=utf-8")
-            elif path == "/browse":
-                self._send(render_browse().encode())
-            elif path.startswith("/file"):
-                from urllib.parse import parse_qs, urlparse
-                target = parse_qs(urlparse(self.path).query).get("p", [""])[0]
-                if not target or not allowed(target):
-                    self._send(b"forbidden or missing path", status=403, ctype="text/plain")
+            elif path.startswith("/report/audit/") or path.startswith("/report/vuln/"):
+                parts = path.strip("/").split("/", 2)
+                kind = parts[1] if len(parts) == 3 else ""
+                name = parts[2] if len(parts) == 3 else ""
+                base = AUDIT_DIR if kind == "audit" else VULN_DIR
+                if not re.fullmatch(r"[A-Za-z0-9._-]+\.md", name):
+                    self._send(b"not found", status=404, ctype="text/plain")
                 else:
-                    self._send(read(target).encode(), ctype="text/plain; charset=utf-8")
+                    self._send(read(os.path.join(base, name)).encode(),
+                               ctype="text/plain; charset=utf-8")
             else:
                 self._send(b"not found", status=404, ctype="text/plain")
         except Exception as exc:  # noqa: BLE001

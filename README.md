@@ -290,6 +290,23 @@ So: scan first, then open — ideally in a browser PDF viewer (PDF.js) or a disp
 anything flagged `SUSPICIOUS`, and never trust a document just because it arrived from a
 known sender.
 
+## Dashboard
+
+A read-only web app that renders the newest reports and logs in one page.
+
+```bash
+./dashboard/install.sh          # launchd agent → http://127.0.0.1:8787
+python3 dashboard/server.py     # or run in the foreground
+./dashboard/install.sh uninstall
+```
+
+Endpoints: `/` (HTML, auto-refresh 60s), `/api/summary` (JSON), `/report/audit`, `/report/vuln`.
+
+It binds to `127.0.0.1` only, never writes, and has no dependencies beyond the system
+`/usr/bin/python3`. It shows: outdated formulae/casks, pending macOS and App Store updates,
+known CVEs by severity and top repos, last daily upgrade run plus mise failures, and the
+cron/launchd schedule.
+
 ## Automated upgrades
 
 What runs without you, as of this repo's setup on macOS:

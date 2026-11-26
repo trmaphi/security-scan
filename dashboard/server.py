@@ -266,10 +266,10 @@ def days_old(stamp: str) -> int | None:
     if not stamp:
         return None
     try:
-        dt = datetime.strptime(stamp.strip(), "%Y-%m-%d %H:%M %z")
+        dt = datetime.strptime(stamp.strip()[:16], "%Y-%m-%d %H:%M")
     except ValueError:
         return None
-    return (datetime.now(dt.tzinfo) - dt).days
+    return (datetime.now() - dt).days
 
 
 def collect_actions(data: dict) -> list[dict]:

@@ -11,3 +11,6 @@ maintenance/exclude.txt
 maintenance/paths-windows.txt
 __pycache__/
 *.pyc
+
+# generated dashboard (contains local inventory)
+dashboard/index.html

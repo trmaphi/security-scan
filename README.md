@@ -294,13 +294,24 @@ known sender.
 
 A read-only web app that renders the newest reports and logs in one page.
 
+Two ways to view it:
+
 ```bash
-./dashboard/install.sh          # launchd agent → http://127.0.0.1:8787
-python3 dashboard/server.py     # or run in the foreground
-./dashboard/install.sh uninstall
+# 1. static page — no server, open with Finder or `open`
+python3 dashboard/build.py
+open dashboard/index.html
+
+# 2. live server — re-reads reports on every request, /api/summary for scripting
+python3 dashboard/server.py        # http://127.0.0.1:8787
+./dashboard/install.sh             # …or keep it running as a launchd agent
 ```
 
-Endpoints: `/` (HTML, auto-refresh 60s), `/api/summary` (JSON), `/report/audit`, `/report/vuln`.
+Why a build step for the static page: browsers refuse to `fetch()` arbitrary `file://` URLs
+(CORS), so a plain HTML file cannot read `~/software-audit/reports/*.md` on its own. `build.py`
+parses the Markdown with the same code as the server and inlines the result, so the output is
+self-contained and works from `file://`. It is gitignored because it contains your inventory.
+
+Endpoints (server mode): `/` HTML, `/api/summary` JSON, `/report/audit`, `/report/vuln`.
 
 It binds to `127.0.0.1` only, never writes, and has no dependencies beyond the system
 `/usr/bin/python3`. It shows: outdated formulae/casks, pending macOS and App Store updates,
